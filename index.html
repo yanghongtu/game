@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>暗影传说 - Shadow Legend</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+  html, body {
+    background: #0a0a14;
+    color: #ddd;
+    font-family: 'Microsoft YaHei', 'Segoe UI', sans-serif;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+  }
+  body {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+  }
+  #game-container {
+    position: relative;
+    width: 1280px;
+    height: 720px;
+    flex-shrink: 0;
+    box-shadow: 0 0 20px rgba(120, 80, 200, 0.4);
+    border: 2px solid #444;
+  }
+  canvas {
+    display: block;
+    background: #1a1a2e;
+    image-rendering: pixelated;
+  }
+  #ui-overlay {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+  }
+  .hud {
+    position: absolute;
+    top: 10px; left: 10px;
+    background: rgba(0,0,0,0.6);
+    padding: 10px 14px;
+    border-radius: 8px;
+    border: 1px solid #555;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  .bar-container {
+    width: 200px;
+    height: 14px;
+    background: #222;
+    border: 1px solid #555;
+    border-radius: 3px;
+    overflow: hidden;
+    margin: 3px 0;
+    position: relative;
+  }
+  .bar-fill { height: 100%; transition: width 0.3s; }
+  .hp-fill { background: linear-gradient(90deg, #c0392b, #e74c3c); }
+  .mp-fill { background: linear-gradient(90deg, #2980b9, #3498db); }
+  .exp-fill { background: linear-gradient(90deg, #f39c12, #f1c40f); }
+  .bar-text {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    text-align: center;
+    font-size: 11px;
+    line-height: 14px;
+    color: #fff;
+    text-shadow: 1px 1px 1px #000;
+  }
+  #minimap {
+    position: absolute;
+    top: 10px; right: 10px;
+    width: 160px; height: 160px;
+    background: rgba(0,0,0,0.7);
+    border: 1px solid #555;
+    border-radius: 4px;
+  }
+  #inventory-panel {
+    position: absolute;
+    bottom: 10px; right: 10px;
+    width: 280px;
+    background: rgba(0,0,0,0.8);
+    border: 1px solid #555;
+    border-radius: 4px;
+    padding: 8px;
+    font-size: 12px;
+    display: none;
+  }
+  #inventory-panel.active { display: block; }
+  .inv-slot {
+    display: inline-block;
+    width: 40px; height: 40px;
+    background: #222;
+    border: 1px solid #444;
+    margin: 2px;
+    position: relative;
+    text-align: center;
+    line-height: 38px;
+    font-size: 20px;
+    cursor: pointer;
+  }
+  .inv-slot:hover { border-color: #f1c40f; }
+
+  /* 角色装备面板 */
+  #character-panel {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 760px;
+    height: 520px;
+    background: linear-gradient(135deg, rgba(20,10,30,0.97), rgba(40,20,50,0.97));
+    border: 2px solid #c39bd3;
+    border-radius: 8px;
+    padding: 16px;
+    display: none;
+    z-index: 8;
+    pointer-events: auto;
+    box-shadow: 0 0 40px rgba(142, 68, 173, 0.5);
+    color: #ddd;
+  }
+  #character-panel.active { display: flex; }
+  .char-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #555;
+    margin-bottom: 12px;
+  }
+  .char-header .name { font-size: 24px; color: #f1c40f; font-weight: bold; }
+  .char-header .meta { color: #aaa; font-size: 13px; }
+  .char-header .close-btn {
+    cursor: pointer; color: #e74c3c; font-size: 22px;
+    background: none; border: none; padding: 0 8px;
+  }
+  .char-header .close-btn:hover { color: #fff; }
+  .char-body {
+    display: flex;
+    gap: 16px;
+    height: calc(100% - 60px);
+  }
+  .char-left {
+    width: 280px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .char-portrait {
+    width: 240px;
+    height: 280px;
+    background: radial-gradient(ellipse at center, rgba(241,196,15,0.15), rgba(0,0,0,0.5));
+    border: 2px solid #6c3483;
+    border-radius: 6px;
+    position: relative;
+    margin-bottom: 10px;
+    overflow: hidden;
+  }
+  .char-portrait canvas {
+    display: block;
+    margin: 0 auto;
+  }
+  .char-slots-around {
+    position: absolute;
+    width: 100%; height: 100%;
+    pointer-events: none;
+  }
+  .equip-slot {
+    position: absolute;
+    width: 56px; height: 56px;
+    background: rgba(0,0,0,0.7);
+    border: 2px solid #444;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    pointer-events: auto;
+    cursor: pointer;
+    transition: all 0.15s;
+    font-size: 22px;
+    line-height: 1;
+  }
+  .equip-slot:hover {
+    border-color: #f1c40f;
+    transform: scale(1.08);
+    box-shadow: 0 0 10px rgba(241,196,15,0.6);
+  }
+  .equip-slot.empty { color: #555; }
+  .equip-slot.empty .label { font-size: 9px; color: #555; margin-top: 2px; }
+  .equip-slot .label { font-size: 9px; color: #aaa; margin-top: 2px; }
+  .equip-slot .icon { font-size: 24px; }
+  .equip-slot.s-head    { top: 6px;  left: 50%; transform: translateX(-50%); }
+  .equip-slot.s-amulet  { top: 30%;  left: 14px; }
+  .equip-slot.s-weapon  { top: 30%;  right: 14px; }
+  .equip-slot.s-armor   { top: 48%;  left: 50%; transform: translateX(-50%); }
+  .equip-slot.s-gloves  { top: 70%;  left: 14px; }
+  .equip-slot.s-boots   { bottom: 6px; left: 50%; transform: translateX(-50%); }
+  .equip-slot.s-weapon:hover,
+  .equip-slot.s-head:hover,
+  .equip-slot.s-amulet:hover,
+  .equip-slot.s-armor:hover,
+  .equip-slot.s-gloves:hover,
+  .equip-slot.s-boots:hover { transform: translateX(-50%) scale(1.08); }
+  .equip-slot.s-amulet:hover,
+  .equip-slot.s-gloves:hover { transform: scale(1.08); }
+  .equip-slot.selected { box-shadow: 0 0 16px rgba(241,196,15,0.8); border-color: #f1c40f; }
+  .equip-slot.selected.s-weapon,
+  .equip-slot.selected.s-head,
+  .equip-slot.selected.s-armor,
+  .equip-slot.selected.s-boots { transform: translateX(-50%) scale(1.05); }
+
+  .char-right {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
+  }
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 8px;
+    background: rgba(0,0,0,0.4);
+    border-radius: 3px;
+    font-size: 13px;
+  }
+  .stat-row .label { color: #aaa; }
+  .stat-row .val { color: #fff; font-weight: bold; }
+  .stat-row .val .bonus { color: #2ecc71; font-size: 11px; }
+  .char-selected {
+    flex: 1;
+    background: rgba(0,0,0,0.5);
+    border: 1px solid #555;
+    border-radius: 4px;
+    padding: 10px;
+    font-size: 12px;
+    overflow-y: auto;
+  }
+  .char-selected .item-name {
+    font-size: 16px;
+    font-weight: bold;
+    margin-bottom: 6px;
+  }
+  .char-selected .item-stats {
+    color: #ccc;
+    line-height: 1.7;
+  }
+  .char-selected .item-affix {
+    color: #2ecc71;
+    margin-left: 6px;
+    font-size: 11px;
+  }
+  /* 套装进度 */
+  #char-sets {
+    font-size: 12px;
+    margin-top: 6px;
+    max-height: 150px;
+    overflow-y: auto;
+  }
+  .set-row {
+    background: rgba(0,0,0,0.4);
+    border-radius: 3px;
+    padding: 5px 8px;
+    margin-bottom: 4px;
+  }
+  .set-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 3px;
+  }
+  .set-active { color: #2ecc71; font-size: 11px; line-height: 1.5; }
+  .set-next { color: #aaa; font-size: 11px; line-height: 1.5; }
+  .char-selected .item-actions {
+    margin-top: 8px;
+    display: flex;
+    gap: 6px;
+  }
+  .char-selected .btn-act {
+    padding: 6px 14px;
+    border: 1px solid #888;
+    background: rgba(0,0,0,0.6);
+    color: #fff;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 12px;
+  }
+  .char-selected .btn-act:hover { background: rgba(142,68,173,0.5); }
+  .char-selected .btn-act.btn-unequip { border-color: #e74c3c; color: #e74c3c; }
+  .char-selected .btn-act.btn-equip { border-color: #2ecc71; color: #2ecc71; }
+  .char-selected .btn-act:disabled { opacity: 0.4; cursor: not-allowed; }
+  #quest-panel {
+    position: absolute;
+    top: 10px; left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,0.7);
+    padding: 8px 16px;
+    border-radius: 4px;
+    border: 1px solid #666;
+    font-size: 13px;
+    max-width: 400px;
+  }
+  #dialog-box {
+    position: absolute;
+    bottom: 80px; left: 50%;
+    transform: translateX(-50%);
+    width: 800px;
+    background: rgba(0,0,0,0.9);
+    border: 2px solid #888;
+    border-radius: 8px;
+    padding: 16px 20px;
+    display: none;
+    font-size: 15px;
+    line-height: 1.5;
+  }
+  #dialog-box.active { display: block; }
+  .dialog-name { color: #f1c40f; font-weight: bold; margin-bottom: 6px; }
+  .dialog-text { color: #eee; min-height: 40px; }
+  .dialog-hint { color: #888; font-size: 11px; text-align: right; margin-top: 8px; }
+  #skill-bar {
+    position: absolute;
+    bottom: 10px; left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 6px;
+  }
+  .skill-slot {
+    width: 50px; height: 50px;
+    background: rgba(0,0,0,0.7);
+    border: 2px solid #555;
+    border-radius: 4px;
+    text-align: center;
+    line-height: 46px;
+    font-size: 22px;
+    position: relative;
+  }
+  .skill-slot .key {
+    position: absolute;
+    top: 2px; left: 4px;
+    font-size: 10px;
+    color: #aaa;
+  }
+  .skill-slot .cd-overlay {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    background: rgba(0,0,0,0.7);
+    color: #f39c12;
+    font-size: 14px;
+    line-height: 14px;
+  }
+  #start-screen, #death-screen, #victory-screen {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(0,0,0,0.85);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    z-index: 10;
+    pointer-events: auto;
+  }
+  #death-screen, #victory-screen { display: none; }
+  #pause-panel {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(0,0,0,0.75);
+    display: none;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    z-index: 9;
+    pointer-events: auto;
+  }
+  #pause-panel.active { display: flex; }
+  .title {
+    font-size: 56px;
+    color: #f1c40f;
+    text-shadow: 4px 4px 0 #6c3483, 8px 8px 20px rgba(0,0,0,0.8);
+    margin-bottom: 20px;
+    font-weight: bold;
+    letter-spacing: 4px;
+  }
+  .subtitle {
+    font-size: 18px;
+    color: #aaa;
+    margin-bottom: 40px;
+  }
+  .btn {
+    background: linear-gradient(180deg, #8e44ad, #6c3483);
+    color: #fff;
+    border: 2px solid #c39bd3;
+    padding: 12px 32px;
+    font-size: 18px;
+    border-radius: 6px;
+    cursor: pointer;
+    margin: 6px;
+    transition: all 0.2s;
+  }
+  .btn:hover {
+    background: linear-gradient(180deg, #a569bd, #8e44ad);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(142, 68, 173, 0.5);
+  }
+  .controls-info {
+    margin-top: 30px;
+    background: rgba(0,0,0,0.5);
+    padding: 16px 24px;
+    border-radius: 6px;
+    border: 1px solid #555;
+    font-size: 13px;
+    line-height: 1.8;
+    color: #ccc;
+  }
+  .controls-info kbd {
+    background: #444;
+    padding: 2px 8px;
+    border-radius: 3px;
+    border: 1px solid #666;
+    font-family: monospace;
+    color: #f1c40f;
+  }
+  /* 难度选择 */
+  .diff-btn {
+    background: rgba(0,0,0,0.6);
+    border: 2px solid #555;
+    color: #ccc;
+    padding: 8px 18px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.15s;
+  }
+  .diff-btn:hover { border-color: #f1c40f; color: #fff; }
+  .diff-btn.selected {
+    border-color: #f1c40f;
+    color: #fff;
+    background: rgba(142, 68, 173, 0.45);
+    box-shadow: 0 0 12px rgba(241,196,15,0.45);
+  }
+  #upgrade-panel {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(0,0,0,0.95);
+    border: 2px solid #f1c40f;
+    padding: 20px;
+    border-radius: 8px;
+    display: none;
+    z-index: 5;
+    pointer-events: auto;
+    min-width: 400px;
+  }
+  #upgrade-panel.active { display: block; }
+  #upgrade-panel h3 {
+    color: #f1c40f;
+    margin-bottom: 12px;
+    text-align: center;
+  }
+  .upgrade-choice {
+    display: block;
+    width: 100%;
+    background: #2c3e50;
+    border: 1px solid #555;
+    color: #eee;
+    padding: 10px 14px;
+    margin: 6px 0;
+    border-radius: 4px;
+    cursor: pointer;
+    text-align: left;
+    font-size: 14px;
+  }
+  .upgrade-choice:hover {
+    background: #34495e;
+    border-color: #f1c40f;
+  }
+  .upgrade-name { color: #f1c40f; font-weight: bold; }
+  .upgrade-desc { color: #aaa; font-size: 12px; margin-top: 2px; }
+  #damage-numbers {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+  }
+  .damage-num {
+    position: absolute;
+    font-weight: bold;
+    text-shadow: 2px 2px 0 #000;
+    animation: floatUp 1s ease-out forwards;
+  }
+  @keyframes floatUp {
+    0% { transform: translateY(0) scale(1); opacity: 1; }
+    100% { transform: translateY(-40px) scale(1.3); opacity: 0; }
+  }
+  #tooltip {
+    position: absolute;
+    background: rgba(0,0,0,0.95);
+    border: 1px solid #888;
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    max-width: 220px;
+    display: none;
+    pointer-events: none;
+    z-index: 100;
+    line-height: 1.5;
+  }
+  #tooltip .tt-name { color: #f1c40f; font-weight: bold; margin-bottom: 4px; }
+  #tooltip .tt-rarity { font-size: 11px; margin-bottom: 4px; }
+  #tooltip .tt-stat { color: #aaa; }
+</style>
+</head>
+<body>
+<div id="game-container">
+  <canvas id="game" width="1280" height="720"></canvas>
+
+  <div id="ui-overlay">
+    <!-- 玩家状态HUD -->
+    <div class="hud" id="player-hud">
+      <div style="font-size:16px;color:#f1c40f;margin-bottom:4px;">
+        <span id="player-name">勇者</span> Lv.<span id="player-level">1</span>
+      </div>
+      <div class="bar-container">
+        <div class="bar-fill hp-fill" id="hp-bar" style="width:100%"></div>
+        <div class="bar-text" id="hp-text">100/100</div>
+      </div>
+      <div class="bar-container">
+        <div class="bar-fill mp-fill" id="mp-bar" style="width:100%"></div>
+        <div class="bar-text" id="mp-text">50/50</div>
+      </div>
+      <div class="bar-container">
+        <div class="bar-fill exp-fill" id="exp-bar" style="width:0%"></div>
+        <div class="bar-text" id="exp-text">0/100</div>
+      </div>
+      <div style="margin-top:6px;font-size:12px;color:#aaa;">
+        💰 <span id="gold">0</span> | ⚔️ <span id="atk">10</span> | 🛡️ <span id="def">5</span>
+        | <span id="difficulty-badge" style="color:#f1c40f;">⚔ 标准</span>
+      </div>
+    </div>
+
+    <!-- 任务面板 -->
+    <div id="quest-panel">
+      <div style="color:#f1c40f;font-size:11px;">📜 当前任务</div>
+      <div id="quest-text">前往村庄探索...</div>
+      <div id="pity-text" style="display:none;font-size:11px;margin-top:3px;"></div>
+    </div>
+
+    <!-- 小地图 -->
+    <canvas id="minimap" width="160" height="160"></canvas>
+
+    <!-- 技能栏 -->
+    <div id="skill-bar">
+      <div class="skill-slot"><span class="key">🗡</span>⚔️</div>
+      <div class="skill-slot"><span class="key">1</span>🔥<div class="cd-overlay" id="cd-1" style="display:none"></div></div>
+      <div class="skill-slot"><span class="key">2</span>❄️<div class="cd-overlay" id="cd-2" style="display:none"></div></div>
+      <div class="skill-slot"><span class="key">3</span>⚡<div class="cd-overlay" id="cd-3" style="display:none"></div></div>
+      <div class="skill-slot"><span class="key">4</span>💚<div class="cd-overlay" id="cd-4" style="display:none"></div></div>
+    </div>
+
+    <!-- 背包 -->
+    <div id="inventory-panel">
+      <div style="color:#f1c40f;margin-bottom:6px;">🎒 背包 (I 键)</div>
+      <div id="inv-grid"></div>
+    </div>
+
+    <!-- 角色装备面板 -->
+    <div id="character-panel">
+      <div class="char-header">
+        <div>
+          <span class="name" id="char-name">英雄</span>
+          <span class="meta" id="char-meta"> Lv.1 · 战士</span>
+        </div>
+        <button class="close-btn" id="char-close">✕</button>
+      </div>
+      <div class="char-body">
+        <div class="char-left">
+          <div class="char-portrait">
+            <canvas id="char-portrait-canvas" width="240" height="280"></canvas>
+            <div class="char-slots-around">
+              <div class="equip-slot s-head empty" data-slot="head" title="头部"><div><div class="icon">⛑</div><div class="label">头部</div></div></div>
+              <div class="equip-slot s-amulet empty" data-slot="amulet" title="项链"><div><div class="icon">📿</div><div class="label">项链</div></div></div>
+              <div class="equip-slot s-weapon empty" data-slot="weapon" title="武器"><div><div class="icon">⚔</div><div class="label">武器</div></div></div>
+              <div class="equip-slot s-armor empty" data-slot="armor" title="护甲"><div><div class="icon">🛡</div><div class="label">护甲</div></div></div>
+              <div class="equip-slot s-gloves empty" data-slot="gloves" title="手套"><div><div class="icon">🧤</div><div class="label">手套</div></div></div>
+              <div class="equip-slot s-boots empty" data-slot="boots" title="靴子"><div><div class="icon">🥾</div><div class="label">靴子</div></div></div>
+            </div>
+          </div>
+        </div>
+        <div class="char-right">
+          <div class="stat-row"><span class="label">等级</span><span class="val" id="char-stat-level">1</span></div>
+          <div class="stat-row"><span class="label">生命值</span><span class="val" id="char-stat-hp">120/120</span></div>
+          <div class="stat-row"><span class="label">魔法值</span><span class="val" id="char-stat-mp">60/60</span></div>
+          <div class="stat-row"><span class="label">攻击力</span><span class="val" id="char-stat-atk">12</span></div>
+          <div class="stat-row"><span class="label">防御力</span><span class="val" id="char-stat-def">5</span></div>
+          <div class="stat-row"><span class="label">移动速度</span><span class="val" id="char-stat-speed">3.4</span></div>
+          <div id="char-stat-extra"></div>
+          <div class="stat-row"><span class="label">击杀数</span><span class="val" id="char-stat-kills">0</span></div>
+          <div class="stat-row"><span class="label">总金币</span><span class="val" id="char-stat-gold">0</span></div>
+          <div id="char-sets"></div>
+          <div class="char-selected" id="char-selected">
+            <div style="color:#888;text-align:center;padding:30px 0;">点击左侧装备槽或背包物品查看详情</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 对话框 -->
+    <div id="dialog-box">
+      <div class="dialog-name" id="dialog-name">NPC</div>
+      <div class="dialog-text" id="dialog-text">你好，勇者！</div>
+      <div class="dialog-hint">[空格] 继续 · [E] 关闭</div>
+    </div>
+
+    <!-- 升级选择面板 -->
+    <div id="upgrade-panel">
+      <h3>✨ 升级！选择一项强化 ✨</h3>
+      <div id="upgrade-choices"></div>
+    </div>
+
+    <!-- 伤害数字层 -->
+    <div id="damage-numbers"></div>
+
+    <!-- 物品Tooltip -->
+    <div id="tooltip">
+      <div class="tt-name"></div>
+      <div class="tt-rarity"></div>
+      <div class="tt-stats"></div>
+    </div>
+
+    <!-- 开始画面 -->
+    <div id="start-screen">
+      <div class="title">⚔️ 暗影传说 ⚔️</div>
+      <div class="subtitle">Shadow Legend - 一个融合 Roguelike 的动作RPG</div>
+      <button class="btn" id="btn-continue" style="background:linear-gradient(180deg,#27ae60,#16a085);">▶ 继续游戏</button>
+      <div id="save-info" style="margin:8px 0 4px;color:#f1c40f;font-size:13px;">（暂无存档）</div>
+      <button class="btn" id="btn-start">开始冒险</button>
+      <div class="btn-delete-save" id="btn-delete-save" style="margin:6px 0 4px;color:#888;font-size:12px;cursor:pointer;text-decoration:underline;">🗑 删除存档</div>
+      <div id="difficulty-panel" style="margin-top:10px;">
+        <div style="color:#f1c40f;font-size:12px;margin-bottom:6px;">⚔ 选择难度</div>
+        <div id="difficulty-choices" style="display:flex;gap:6px;justify-content:center;"></div>
+        <div id="difficulty-desc" style="color:#aaa;font-size:12px;margin-top:6px;min-height:16px;"></div>
+      </div>
+      <div class="controls-info">
+        <b style="color:#f1c40f">操作说明：</b><br>
+        <kbd>WASD</kbd> / <kbd>方向键</kbd> 移动 · <kbd>Shift</kbd> 冲刺(无敌)<br>
+        <kbd>J</kbd> / 鼠标左键 普通攻击 · <kbd>1-4</kbd> 释放技能 · <kbd>Q</kbd> 治疗<br>
+        <kbd>I</kbd> 背包 · <kbd>C</kbd> 角色 · <kbd>E</kbd> 交互 · <kbd>P</kbd>/<kbd>ESC</kbd> 暂停 · <kbd>M</kbd> 手动保存<br>
+        <kbd>空格</kbd> 对话继续<br>
+        <b style="color:#f1c40f">玩法：</b> 探索地图、击败怪物、收集装备、强化角色、挑战Boss！
+      </div>
+    </div>
+
+    <!-- 暂停画面 -->
+    <div id="pause-panel">
+      <div class="title" style="font-size:36px;">⏸ 暂停</div>
+      <div class="subtitle">游戏已暂停 - 按 P / ESC 继续</div>
+      <button class="btn" id="btn-resume">▶ 继续游戏</button>
+      <button class="btn" id="btn-pause-save" style="background:linear-gradient(180deg,#27ae60,#16a085);">💾 保存游戏</button>
+      <button class="btn" id="btn-pause-exit" style="background:linear-gradient(180deg,#e67e22,#d35400);">🚪 返回主菜单</button>
+    </div>
+
+    <!-- 死亡画面 -->
+    <div id="death-screen">
+      <div class="title" style="color:#c0392b">💀 你倒下了 💀</div>
+      <div class="subtitle">等级 <span id="death-level">1</span> · 金币 <span id="death-gold">0</span></div>
+      <button class="btn" id="btn-retry">重新开始</button>
+    </div>
+
+    <!-- 通关画面 -->
+    <div id="victory-screen">
+      <div class="title" style="color:#f1c40f">🏆 胜利！🏆</div>
+      <div class="subtitle">你击败了暗影之王，拯救了世界！</div>
+      <button class="btn" id="btn-restart">再次冒险</button>
+    </div>
+  </div>
+</div>
+
+<script src="game.js"></script>
+<script>
+  // 自适应：canvas 的 width/height 物理像素随视口缩放，但内部坐标系固定 1280x720
+  (function() {
+    const canvas = document.getElementById('game');
+    const c = document.getElementById('game-container');
+    function fit() {
+      const vw = window.innerWidth, vh = window.innerHeight;
+      // canvas 物理尺寸按比例缩放
+      const scale = Math.min(vw / 1280, vh / 720, 1);
+      const pw = Math.floor(1280 * scale);
+      const ph = Math.floor(720 * scale);
+      canvas.style.width = pw + 'px';
+      canvas.style.height = ph + 'px';
+      c.style.width = pw + 'px';
+      c.style.height = ph + 'px';
+    }
+    window.addEventListener('resize', fit);
+    fit();
+  })();
+</script>
+</body>
+</html>

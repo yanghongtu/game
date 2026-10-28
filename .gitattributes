@@ -1,0 +1,8 @@
+# 统一换行符策略，避免跨平台协作时整个文件因行尾差异被标记为"全文件修改"。
+# 仓库内一律存 LF，检出时按平台自动转换（Windows -> CRLF，其他 -> LF）。
+* text=auto
+
+# 明确这几类是文本，供 GitHub 正确统计语言与做 diff
+*.js   text
+*.html text
+*.md   text
