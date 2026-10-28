@@ -5,6 +5,22 @@
 ![status](https://img.shields.io/badge/status-playable-brightgreen)
 ![deps](https://img.shields.io/badge/dependencies-0-blue)
 
+## 截图
+
+> 图片为 1280×720 原始分辨率，GitHub 会按容器宽度缩放显示。
+
+### 战斗
+
+<img src="docs/screenshots/gameplay.png" width="820" alt="战斗画面：角色持剑迎击史莱姆与精英怪">
+
+### 角色面板
+
+<img src="docs/screenshots/character.png" width="820" alt="角色面板：六件装备槽位与详细属性">
+
+### 背包与装备词条
+
+<img src="docs/screenshots/inventory.png" width="820" alt="背包面板：装备列表与随机词条">
+
 ## 快速开始
 
 ```bash
@@ -52,8 +68,9 @@ cd game
 
 ```
 .
-├── index.html   # 页面骨架 + 全部 CSS + UI 层（约 700 行）
-├── game.js      # 游戏逻辑与渲染（约 5600 行，单文件）
+├── index.html                 # 页面骨架 + 全部 CSS + UI 层（约 700 行）
+├── game.js                    # 游戏逻辑与渲染（约 5600 行，单文件）
+├── docs/screenshots/          # README 用的截图
 └── README.md
 ```
 

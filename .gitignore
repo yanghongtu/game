@@ -17,6 +17,10 @@
 node_modules/
 .claude/
 
+# 截图工具的中间产物（tools/make_screenshots.py 的包装页与临时截图）
+_shot_work/
+_shot/
+
 # .ahx/ 是 harness 的 spill 目录（shell 命令的完整输出留证），
 # 内含全部执行过的命令与输出，**绝不入库**。
 .ahx/
