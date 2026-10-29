@@ -71,8 +71,27 @@ cd game
 ├── index.html                 # 页面骨架 + 全部 CSS + UI 层（约 700 行）
 ├── game.js                    # 游戏逻辑与渲染（约 5600 行，单文件）
 ├── docs/screenshots/          # README 用的截图
+├── tools/                     # 截图生成与验证工具（见下）
 └── README.md
 ```
+
+### 截图工具
+
+```bash
+python tools/make_screenshots.py                    # 生成三张截图到 docs/screenshots/
+python tools/make_screenshots.py --out /tmp/shots   # 输出到别处（不覆盖仓库里的图）
+python tools/shot_layout_check.py .                # 核对截图构图（元素位置与数量）
+```
+
+用 headless Chrome 加载一个临时包装页，注入脚本把游戏推进到指定状态后整页截图
+（含 HUD —— `canvas.toDataURL()` 抓不到 DOM 覆盖层）。
+
+**截图是自动生成 + 自带断言的**：每个场景都有对应的像素断言与语义构图核对
+（按区域检查元素的**位置与数量**），所以「驱动脚本没执行」「面板是空的」
+这类问题会被当场拦下，而不是产出一张看着正常、实际内容错误的图。
+
+> 重跑会覆盖 `docs/screenshots/` 里的图，而图中的攻击特效与粒子**每次都不同**
+> （游戏动态效果）。想保留原图就加 `--out` 指定别的目录。
 
 **刻意不拆分 `game.js`。** 实测结论：
 
