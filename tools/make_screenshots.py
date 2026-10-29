@@ -6,6 +6,19 @@
 （进入战斗 / 打开面板 / 展示装备），再由 Chrome 截**整页**（含 HUD 的
 DOM 覆盖层 —— `canvas.toDataURL()` 抓不到它）。
 
+**关于「可复现」的准确口径**（别误以为每次跑出来 md5 都一样）：
+  - **构图是确定的**：注入确定性 PRNG（mulberry32）后，地图布局（ROOMS）、
+    敌人种类与位置、装备内容全部固定 ⇒ 画面构图每次一致。
+  - **像素不是逐字节确定的**：实测两次生成的差异
+      · HUD 文字区 ±1 色阶（抗锯齿栅格化噪声，0.7% 像素）
+      · 攻击特效 / 粒子位置（0.6% 像素，**游戏动态效果，本就应该变**）
+    曾尝试冻结 `Date.now` / `performance.now` 以求逐字节一致，
+    **反而更糟**：rAF 回调的 t 是原生时间戳，而游戏用 `dt = t - lastTime`
+    推进、lastTime 初值取自 performance.now()，冻结后两者量纲不一致
+    ⇒ dt 变成巨大负数 ⇒ 游戏逻辑被破坏（画面停在菜单页）。
+    ⇒ 逐字节确定性在 headless 下不可达，且**没有收益**，故不做。
+  - 结论：需要「图不变」时用仓库里已提交的那份，不要反复重跑覆盖。
+
 用法：
   python tools/make_screenshots.py            # 生成到 docs/screenshots/
   python tools/make_screenshots.py --keep     # 保留中间产物（调试用）
@@ -32,6 +45,33 @@ CHROME = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
 def build_wrapper(state_js, out_png, budget=6000, tag="scene"):
     """生成包装页：原 index.html 内容 + 追加驱动脚本。"""
     html = open(SRC_HTML, encoding="utf-8").read()
+
+    # —— 确定性 PRNG ——
+    # 必须在 game.js **加载之前**覆盖 Math.random：game.js 的顶层代码会立即
+    # 生成世界布局（ROOMS 等），随机源不定 ⇒ 每次跑出来的地图都不同。
+    #
+    # **只固定随机源，不动时钟**：曾尝试冻结 Date.now / performance.now，
+    # 结果更糟 —— rAF 回调的 t 是**原生时间戳**，而游戏用
+    # `dt = t - lastTime` 推进、lastTime 初值取自 performance.now()，
+    # 冻结后两者量纲不一致 ⇒ dt 变成巨大负数 ⇒ 游戏逻辑被破坏
+    # （症状：animTime 只推进到 5 帧，画面停在菜单页）。
+    prng = """
+<script>
+// —— 确定性 PRNG（截图用，mulberry32）——
+(function () {
+  var seed = 0x9E3779B9;
+  Math.random = function () {
+    seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+    var t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+})();
+</script>
+"""
+    idx = html.index("<head>")
+    html = html[:idx + len("<head>")] + prng + html[idx + len("<head>"):]
+
     # 移除 </body>，追加驱动脚本
     drive = """
 <script>
@@ -48,8 +88,20 @@ def build_wrapper(state_js, out_png, budget=6000, tag="scene"):
       console.error('DRIVE_ERROR: ' + e.message + '\\n' + e.stack);
     }
   }
-  if (document.readyState === 'complete') setTimeout(go, 200);
-  else window.addEventListener('load', function () { setTimeout(go, 200); });
+  // 等字体（含 emoji）加载完成再进场景 —— 否则 emoji 可能还没渲染完，
+  // 同一场景两次截出来的面板头部像素不同（emoji 是异步加载的）。
+  function whenFontsReady(fn) {
+    try {
+      if (document.fonts && document.fonts.ready) {
+        document.fonts.ready.then(function () { setTimeout(fn, 150); },
+                                  function () { setTimeout(fn, 150); });
+        return;
+      }
+    } catch (e) {}
+    setTimeout(fn, 150);
+  }
+  if (document.readyState === 'complete') whenFontsReady(go);
+  else window.addEventListener('load', function () { whenFontsReady(go); });
 })();
 </script>
 """ % state_js
@@ -260,14 +312,22 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--keep", action="store_true", help="保留中间产物")
     ap.add_argument("--budget", type=int, default=6000, help="virtual-time-budget 毫秒")
+    ap.add_argument("--out", default=None,
+                    help="输出目录（默认 docs/screenshots）。"
+                         "**重跑会覆盖仓库里已提交的图** —— 图里的攻击特效/粒子每次不同，"
+                         "覆盖后 git 会显示为修改。想保留原图就指定别的目录。")
     args = ap.parse_args()
 
     if not os.path.exists(CHROME):
         print("找不到 Chrome：%s" % CHROME)
         return 1
+    global OUT
+    if args.out:
+        OUT = os.path.abspath(args.out)
     shutil.rmtree(WORK, ignore_errors=True)
     os.makedirs(WORK, exist_ok=True)
     os.makedirs(OUT, exist_ok=True)
+    print("输出目录：%s" % OUT)
 
     # —— 每个场景的特征颜色断言 ——
     # 只判「文件非空」会漏掉「驱动脚本没跑 → 三张图渲染同一张菜单页」；
