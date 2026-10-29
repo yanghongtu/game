@@ -100,8 +100,19 @@ def build_wrapper(state_js, out_png, budget=6000, tag="scene"):
     } catch (e) {}
     setTimeout(fn, 150);
   }
-  if (document.readyState === 'complete') whenFontsReady(go);
-  else window.addEventListener('load', function () { whenFontsReady(go); });
+  // —— 等素材加载完再进场景 ——
+  // 图片是**真实磁盘 IO**，不受 --virtual-time-budget 控制（虚拟时间只加速
+  // 定时器）⇒ 素材没就绪就进场景，拍到的是**降级路径**（程序化绘制）。
+  // 判据：截图里出现的是素材的颜色，而不是降级绘制的颜色。
+  function whenAssetsReady(fn, tries) {
+    tries = tries || 0;
+    var n = (typeof ASSETS !== 'undefined') ? Object.keys(ASSETS.img).length : 0;
+    if (n >= 14 || tries > 60) { fn(); return; }
+    setTimeout(function () { whenAssetsReady(fn, tries + 1); }, 100);
+  }
+  function go2() { whenAssetsReady(go); }
+  if (document.readyState === 'complete') whenFontsReady(go2);
+  else window.addEventListener('load', function () { whenFontsReady(go2); });
 })();
 </script>
 """ % state_js
@@ -126,6 +137,18 @@ def build_wrapper(state_js, out_png, budget=6000, tag="scene"):
             os.symlink(os.path.join(ROOT, "game.js"), link)
         except OSError:
             shutil.copyfile(os.path.join(ROOT, "game.js"), link)
+    # —— assets/ 也必须与包装页同级 ——
+    # 素材走的是相对路径 `assets/img/...`，包装页在 _shot_work/ 子目录里
+    # ⇒ 相对路径会解析到 _shot_work/assets/ ⇒ 404 ⇒ 截图拍到的是
+    # **降级路径**（程序化绘制），素材根本没进画面。
+    # 这个坑不报错：图片 onerror 静默失败，截图照样生成，
+    # 只有「按素材颜色做像素断言」才查得出来。
+    alink = os.path.join(WORK, "assets")
+    if not os.path.exists(alink):
+        try:
+            os.symlink(os.path.join(ROOT, "assets"), alink, target_is_directory=True)
+        except OSError:
+            shutil.copytree(os.path.join(ROOT, "assets"), alink)
     return wrapper
 
 
@@ -334,7 +357,10 @@ def main():
     # 故每个场景都要有**该场景独有**的颜色出现。
     ASSERTS = {
         # 血条渐变（#c0392b/#e74c3c）+ 敌人血条 —— 战斗场景必有
-        "gameplay": ["#e74c3c:血条红", "#1e8449:史莱姆描边绿", "#f39c12:精英光环"],
+        # **史莱姆用的是素材精灵**（Tiny Creatures），主色是青绿 #43e1b3，
+        # 不是程序化版本的 #2ecc71/#1e8449 —— 断言必须跟着素材改，
+        # 否则查的是**降级路径**的颜色，素材没进画面也照样「通过」。
+        "gameplay": ["#e74c3c:血条红", "#43e1b3:素材史莱姆青绿", "#f39c12:精英光环"],
         # 角色面板边框 #c39bd3
         "character": ["#c39bd3:面板边框"],
         # 背包面板边框 #555 + 槽位

@@ -61,17 +61,151 @@ function spawnDamageNum(x, y, text, color = '#fff') {
 }
 
 // ============================================================
-// 音效 (使用 WebAudio)
+// 资源加载 (assets/)
 // ============================================================
+// —— 为什么需要这一层 ——
+// 素材全部是**同目录相对路径**的本地文件，不是 CDN：
+// README 把「双击 index.html 直开」当核心体验，走 CDN 会让离线环境
+// 直接白屏，而且远程图片会污染 canvas（game.js 里有一处 getImageData，
+// 远程图片一进来就抛 SecurityError）。
+//
+// —— 降级策略 ——
+// 素材是**可选**的：加载失败 / 用户没等加载完 / 浏览器不支持某格式，
+// 游戏必须照常玩。因此：
+//   · 图片：ASSETS.img 里有就用，没有就走原来的程序化绘制；
+//   · 音频：采样没就绪就走原来的 WebAudio 振荡器合成音。
+// 两边都**不阻塞**游戏启动 —— 资源在后台异步加载，进游戏时用哪套都行。
+const ASSETS = {
+  img: {},      // name -> HTMLImageElement
+  audio: {},    // name -> AudioBuffer
+  audioReady: false,
+};
+
+// 音效清单：type -> 候选文件（按顺序取第一个加载成功的）
+const SOUND_FILES = {
+  hit:     ['assets/audio/hit0.ogg',    'assets/audio/hit1.ogg'],
+  kill:    ['assets/audio/kill0.ogg',   'assets/audio/kill1.ogg'],
+  skill:   ['assets/audio/skill0.ogg',  'assets/audio/skill1.ogg'],
+  levelup: ['assets/audio/levelup0.ogg','assets/audio/levelup1.ogg'],
+  pickup:  ['assets/audio/pickup0.ogg', 'assets/audio/pickup1.ogg'],
+  hurt:    ['assets/audio/hurt0.ogg',   'assets/audio/hurt1.ogg'],
+  dash:    ['assets/audio/dash0.ogg',   'assets/audio/dash1.ogg'],
+  menu:    ['assets/audio/menu0.ogg'],
+  confirm: ['assets/audio/confirm0.ogg','assets/audio/confirm1.ogg'],
+  lowhp:   ['assets/audio/lowhp0.ogg'],
+};
+
+// 图片清单：name -> 路径
+const IMG_FILES = {
+  floor0: 'assets/img/floor_0.png',
+  floor1: 'assets/img/floor_1.png',
+  floor2: 'assets/img/floor_2.png',
+  floor3: 'assets/img/floor_3.png',
+  wall0:  'assets/img/wall_0.png',
+  wall1:  'assets/img/wall_1.png',
+  wall2:  'assets/img/wall_2.png',
+  wall3:  'assets/img/wall_3.png',
+  slime:  'assets/img/slime.png',
+  slime_king: 'assets/img/slime_king.png',
+  skeleton: 'assets/img/skeleton.png',
+  skeleton_warrior: 'assets/img/skeleton_warrior.png',
+  bush:   'assets/img/bush.png',
+  ghost:  'assets/img/ghost.png',
+};
+
+// 加载全部图片。onReady 在**所有**图片都回来（或失败）后触发一次。
+function loadImages(onReady) {
+  const names = Object.keys(IMG_FILES);
+  let pending = names.length;
+  if (!pending) { onReady && onReady(); return; }
+  const done = () => { if (--pending === 0 && onReady) onReady(); };
+  names.forEach(n => {
+    const img = new Image();
+    // 失败不报错：这张图缺席只是「少一种外观」，不影响游戏
+    img.onload = () => { ASSETS.img[n] = img; done(); };
+    img.onerror = () => { done(); };
+    img.src = IMG_FILES[n];
+  });
+}
+
+// 加载全部音效（解码成 AudioBuffer）。需要 audioCtx 已创建。
+function loadSounds(onReady) {
+  if (!audioCtx) { onReady && onReady(); return; }
+  const types = Object.keys(SOUND_FILES);
+  let pending = types.length;
+  const done = () => {
+    if (--pending === 0) {
+      ASSETS.audioReady = true;
+      onReady && onReady();
+    }
+  };
+  types.forEach(t => {
+    // 每个 type 的候选按顺序试，第一个解码成功就用它
+    const candidates = SOUND_FILES[t];
+    let i = 0;
+    const tryNext = () => {
+      if (i >= candidates.length) { done(); return; }
+      const url = candidates[i++];
+      fetch(url)
+        .then(r => r.arrayBuffer())
+        .then(ab => audioCtx.decodeAudioData(ab))
+        .then(buf => { ASSETS.audio[t] = buf; done(); })
+        .catch(() => tryNext());   // 404 / 解码失败 → 换下一个候选
+    };
+    tryNext();
+  });
+}
+
+// ============================================================
+// 音效 (WebAudio + 真实采样)
+// ============================================================
+// —— 启动素材预加载 ——
+// **位置很关键**：放在这里（而不是文件末尾），是因为 game.js 后半段有一堆
+// `document.getElementById(...).onclick = ...` 的 DOM 绑定 —— 页面少任何一个
+// 元素就会抛 TypeError 并**中断整个脚本**，末尾的加载调用将永远不执行。
+// 放在资源模块内部可保证「无论后半段出什么事，素材都会开始加载」。
+//
+// 异步加载，**不阻塞**游戏：玩家在加载完成前进游戏也能正常玩
+// （那几帧走程序化绘制的降级路径，图片加载完自动切换）。
+loadImages(() => {
+  console.log('[assets] images loaded:', Object.keys(ASSETS.img).length);
+});
+
 let audioCtx = null;
 function initAudio() {
   if (audioCtx) return;
   try {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   } catch (e) {}
+  // 采样在后台异步加载，不阻塞
+  loadSounds();
 }
+
+// 播放采样（有就用），没有则返回 false 交给合成音兜底
+function playSample(type, volume = 1) {
+  const buf = ASSETS.audio[type];
+  if (!buf || !audioCtx) return false;
+  try {
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const src = audioCtx.createBufferSource();
+    src.buffer = buf;
+    const g = audioCtx.createGain();
+    g.gain.value = volume;
+    src.connect(g); g.connect(audioCtx.destination);
+    src.start();
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 function playSound(type) {
   if (!audioCtx) return;
+  // —— 优先用真实采样 ——
+  const vol = { hit: 0.7, kill: 0.8, skill: 0.6, levelup: 0.7,
+                pickup: 0.6, hurt: 0.8, dash: 0.5, menu: 0.35,
+                confirm: 0.6, lowhp: 0.5 }[type] ?? 0.6;
+  if (ASSETS.audioReady && playSample(type, vol)) return;  // —— 降级：WebAudio 振荡器合成 ——
   const now = audioCtx.currentTime;
   const osc = audioCtx.createOscillator();
   const gain = audioCtx.createGain();
@@ -127,6 +261,32 @@ function playSound(type) {
     gain.gain.setValueAtTime(0.08, now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
     osc.start(now); osc.stop(now + 0.1);
+  } else if (type === 'menu') {
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(520, now);
+    gain.gain.setValueAtTime(0.06, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
+    osc.start(now); osc.stop(now + 0.06);
+  } else if (type === 'confirm') {
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(440, now);
+    osc.frequency.exponentialRampToValueAtTime(880, now + 0.12);
+    gain.gain.setValueAtTime(0.1, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+    osc.start(now); osc.stop(now + 0.15);
+  } else if (type === 'lowhp') {
+    // 低血量警报：两声短促的方波
+    [0, 0.18].forEach(d => {
+      const o = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      o.connect(g); g.connect(audioCtx.destination);
+      o.type = 'square';
+      o.frequency.setValueAtTime(220, now + d);
+      g.gain.setValueAtTime(0.09, now + d);
+      g.gain.exponentialRampToValueAtTime(0.001, now + d + 0.12);
+      o.start(now + d); o.stop(now + d + 0.12);
+    });
+    return;
   }
 }
 
@@ -2060,12 +2220,73 @@ class Enemy extends Entity {
     }
 
     // 按种类绘制独特造型
+    // —— 优先用素材精灵 ——
+    // 精灵图 16x16，放大到 40x40（约 2.5 倍）刚好跟敌人碰撞盒（32x40）匹配。
+    // 素材没加载好就退回程序化绘制（原逻辑）。
+    const sprite = enemySprite(this);
+    if (sprite) {
+      drawEnemySprite(ctx, cx, cy, this, sprite);
+      return;
+    }
     if (this.name === '骷髅兵')       drawEnemySkeleton(ctx, cx, cy, this);
     else if (this.name === '蝙蝠')    drawEnemyBat(ctx, cx, cy, this);
     else if (this.name === '史莱姆')  drawEnemySlime(ctx, cx, cy, this);
     else if (this.name === '哥布林')  drawEnemyGoblin(ctx, cx, cy, this);
     else if (this.name === '精英怪')  drawEnemyElite(ctx, cx, cy, this);
     else                              drawEnemyGeneric(ctx, cx, cy, this);
+  }
+}
+
+// 敌人种类 → 素材精灵名。返回 null 表示该种类没有素材（或未加载好）。
+function enemySprite(e) {
+  const map = {
+    '史莱姆': 'slime',
+    '骷髅兵': 'skeleton',
+    '蝙蝠':   'ghost',
+    '哥布林': 'slime_king',
+    '精英怪': 'skeleton_warrior',
+  };
+  const key = map[e.name];
+  if (!key) return null;
+  return ASSETS.img[key] || null;
+}
+
+// 画素材精灵：带上下浮动（呼吸感）+ 朝向翻转 + 精英染色
+function drawEnemySprite(ctx, cx, cy, e, img) {
+  const bob = Math.sin(e.animTime * 0.09) * 1.5;
+  const size = 40;
+  const x = cx - size / 2;
+  const y = cy - size / 2 + bob;
+
+  ctx.save();
+  // 朝向：面向左时水平翻转
+  if (e.facing < 0) {
+    ctx.translate(cx, 0);
+    ctx.scale(-1, 1);
+    ctx.translate(-cx, 0);
+  }
+  // 精英怪：叠一层金色调（用 globalCompositeOperation 提亮太重，
+  // 这里用半透明金色描边 + 轻微亮化，保留原图配色）
+  if (e.elite) {
+    ctx.drawImage(img, x, y, size, size);
+    ctx.globalCompositeOperation = 'source-atop';
+    ctx.fillStyle = 'rgba(255, 200, 50, 0.35)';
+    ctx.fillRect(x, y, size, size);
+  } else {
+    ctx.drawImage(img, x, y, size, size);
+  }
+  ctx.restore();
+
+  // 精英怪脚下多一层光晕（区别于普通怪）
+  if (e.elite) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const gg = ctx.createRadialGradient(cx, y + size - 4, 2, cx, y + size - 4, 22);
+    gg.addColorStop(0, 'rgba(255, 200, 50, 0.35)');
+    gg.addColorStop(1, 'rgba(255, 200, 50, 0)');
+    ctx.fillStyle = gg;
+    ctx.fillRect(cx - 22, y + size - 26, 44, 44);
+    ctx.restore();
   }
 }
 
@@ -4723,7 +4944,23 @@ function updateHUD() {
       el.style.display = 'none';
     }
   }
+
+  // —— 低血量警报音 ——
+  // 血量低于 30% 时每 2 秒响一次「心跳警报」，给玩家持续压迫感。
+  // 用**帧计数**而非时间戳：updateHUD 每帧都调，用 Date.now 会在
+  // 暂停/切后台后一次性补响一堆。
+  if (player.hp > 0 && player.hp / player.totalMaxHp < 0.3) {
+    if (++lowHpAlertFrames >= 120) {   // 120 帧 ≈ 2 秒
+      lowHpAlertFrames = 0;
+      playSound('lowhp');
+    }
+  } else {
+    lowHpAlertFrames = 0;
+  }
 }
+
+// 低血量警报的帧计数器（updateHUD 每帧递增）
+let lowHpAlertFrames = 0;
 
 function drawMinimap() {
   const mc = document.getElementById('minimap');
@@ -4771,26 +5008,51 @@ function drawWorld() {
   const endTX = Math.min(WORLD_W, Math.ceil((camera.x + W) / TILE) + 1);
   const startTY = Math.max(0, Math.floor(camera.y / TILE) - 1);
   const endTY = Math.min(WORLD_H, Math.ceil((camera.y + H) / TILE) + 1);
+  // 素材图块是 32x32，按 TILE(64) 放大 2 倍铺贴
+  const hasTiles = ASSETS.img.floor0 && ASSETS.img.wall0;
   for (let y = startTY; y < endTY; y++) {
     for (let x = startTX; x < endTX; x++) {
       const sx = x * TILE - camera.x;
       const sy = y * TILE - camera.y;
       if (worldMap[y][x] === 1) {
-        // 地板
-        const checker = (x + y) % 2 === 0;
-        ctx.fillStyle = checker ? '#3d3d5c' : '#353550';
-        ctx.fillRect(sx, sy, TILE, TILE);
-        // 砖块纹理
-        ctx.strokeStyle = 'rgba(0,0,0,0.15)';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(sx, sy, TILE, TILE);
+        if (hasTiles) {
+          // —— 素材地板 ——
+          // 4 张变体按 (x+y) 轮换，避免整片同纹理造成的"贴纸感"
+          const v = (Math.abs(x * 7 + y * 13)) % 4;
+          const img = ASSETS.img['floor' + v];
+          ctx.drawImage(img, sx, sy, TILE, TILE);
+        } else {
+          // 地板（降级：纯色棋盘格）
+          const checker = (x + y) % 2 === 0;
+          ctx.fillStyle = checker ? '#3d3d5c' : '#353550';
+          ctx.fillRect(sx, sy, TILE, TILE);
+          // 砖块纹理
+          ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(sx, sy, TILE, TILE);
+        }
       } else {
         // 墙外 (虚空)
         ctx.fillStyle = '#0a0a14';
         ctx.fillRect(sx, sy, TILE, TILE);
+        // 邻接可走格的一侧画墙，让地牢有"墙"的存在感
+        if (hasTiles && isWallEdge(x, y)) {
+          const v = (Math.abs(x * 5 + y * 11)) % 4;
+          ctx.drawImage(ASSETS.img['wall' + v], sx, sy, TILE, TILE);
+        }
       }
     }
   }
+}
+
+// 该格是否与可走格相邻（是则当作墙画）
+function isWallEdge(x, y) {
+  for (const [dx, dy] of [[0,-1],[0,1],[-1,0],[1,0]]) {
+    const nx = x + dx, ny = y + dy;
+    if (nx < 0 || ny < 0 || nx >= WORLD_W || ny >= WORLD_H) continue;
+    if (worldMap[ny][nx] === 1) return true;
+  }
+  return false;
 }
 
 function drawDecorations() {
@@ -5390,10 +5652,12 @@ window.addEventListener('keydown', e => {
     const panel = document.getElementById('inventory-panel');
     panel.classList.toggle('active');
     if (panel.classList.contains('active')) renderInventoryPanel();
+    playSound('menu');
   }
   if (k === 'c') {
     if (gameState !== 'play') return;
-    toggleCharacterPanel();
+    const opened = toggleCharacterPanel();
+    playSound(opened ? 'confirm' : 'menu');
   }
   if (k === 'p' || k === 'escape') {
     if (gameState === 'play' || gameState === 'pause') {

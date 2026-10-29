@@ -14,6 +14,10 @@
 *.md
 !/README.md
 
+# 素材授权说明**必须入库** —— 它是第三方素材（CC0）的溯源凭证，
+# 随包保留原始授权声明。少了它，仓库里的素材就成了无出处资产。
+!/assets/CREDITS.md
+
 node_modules/
 .claude/
 __pycache__/
@@ -22,6 +26,13 @@ __pycache__/
 # 截图工具的中间产物（tools/make_screenshots.py 的包装页与临时截图）
 _shot_work/
 _shot/
+_shot_new/
+_shot_verify.png
+_shot_assets.png
+_shot_slime*.png
+
+# CDP 工具（tools/cdp_*.py）启动的真实 Chrome 的用户数据目录
+_chrome_cdp/
 
 # .ahx/ 是 harness 的 spill 目录（shell 命令的完整输出留证），
 # 内含全部执行过的命令与输出，**绝不入库**。
