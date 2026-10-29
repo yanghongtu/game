@@ -33,7 +33,11 @@ def region_hits(px, ch, w, box, rgb, tol=14):
 
 def main():
     root = sys.argv[1] if len(sys.argv) > 1 else "."
-    S = os.path.join(root, "docs", "screenshots")
+    # 截图目录：优先 <root>/docs/screenshots（仓库布局），
+    # 否则把 <root> 当作截图目录本身（`make_screenshots.py --out DIR` 的产物）。
+    _default = os.path.join(root, "docs", "screenshots")
+    S = _default if os.path.isdir(_default) else root
+    print("截图目录：%s" % S)
     ok_all = True
 
     def check(title, cond, detail):
