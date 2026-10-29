@@ -29,7 +29,7 @@ OUT = os.path.join(ROOT, "docs", "screenshots")
 CHROME = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
 
 
-def build_wrapper(state_js, out_png, budget=6000):
+def build_wrapper(state_js, out_png, budget=6000, tag="scene"):
     """生成包装页：原 index.html 内容 + 追加驱动脚本。"""
     html = open(SRC_HTML, encoding="utf-8").read()
     # 移除 </body>，追加驱动脚本
@@ -59,7 +59,12 @@ def build_wrapper(state_js, out_png, budget=6000):
     # 让 body 正好是游戏大小，避免整页截图时出现黑边
     html = html.replace("min-height: 100vh;", "min-height: 0;")
     html = html.replace("width: 100%;\n    height: 100%;", "width: 1280px;\n    height: 720px;")
-    wrapper = os.path.join(WORK, "page.html")
+    # —— 每个场景一个独立文件 ——
+    # 早先三个场景都写同一个 `page.html`，**后写的覆盖先写的**，
+    # 于是 Chrome 加载的永远是最后一个场景（inventory）⇒
+    # character / gameplay 的截图内容与预期不符，且**不报错**。
+    # 判据：三张图 md5 相同 + 内容断言里的「面板内有绿色属性值」为 0。
+    wrapper = os.path.join(WORK, "page_%s.html" % tag)
     with open(wrapper, "wb") as f:
         f.write(html.encode("utf-8"))
     # game.js 必须与包装页同级（相对路径加载）
@@ -143,13 +148,31 @@ SCENES = {
       player.level = 12; player.exp = 320; player.gold = 1840;
       player.atk = 38; player.def = 24; player.maxHp = 260; player.hp = 221;
       player.maxMp = 90; player.mp = 74; player.crit = 18; player.lifesteal = 12;
-      // 塞一套装备，让面板有东西可展示
-      if (typeof giveEquip === 'function') {
-        var names = ['烈焰之刃','霜寒护腕','龙鳞胸甲','疾风战靴','智慧之戒','秘银头盔'];
-        for (var i = 0; i < 6; i++) {
-          try { giveEquip(makeEquip(i, names[i])); } catch (e) {}
-        }
-      }
+      // 装备 6 个槽位 —— 面板的 6 个槽位默认是 .empty（无加成 ⇒ 属性区没有
+      // 绿色 bonus 数字，截图会显得空）。装备对象字段照抄游戏内测试用例的结构。
+      player.equipped = {
+        weapon: { kind:'weapon', name:'烈焰之刃', color:'#ff6b35', rarity:'legendary',
+                  atk:25, def:0, range:60,
+                  affixes:[{stat:'atk',value:8,label:'攻击力 +8'},
+                           {stat:'crit',value:5,label:'暴击率 +5%'}] },
+        armor:  { kind:'armor', name:'龙鳞胸甲', color:'#2ecc71', rarity:'rare',
+                  atk:0, def:18, hp:40,
+                  affixes:[{stat:'def',value:6,label:'防御力 +6'}] },
+        head:   { kind:'head', name:'秘银头盔', color:'#95a5a6', rarity:'rare',
+                  atk:0, def:8, hp:20,
+                  affixes:[{stat:'hp',value:15,label:'生命值 +15'}] },
+        gloves: { kind:'gloves', name:'霜寒护腕', color:'#3498db', rarity:'common',
+                  atk:6, def:5,
+                  affixes:[{stat:'atk',value:3,label:'攻击力 +3'}] },
+        boots:  { kind:'boots', name:'疾风战靴', color:'#e67e22', rarity:'common',
+                  atk:0, def:4, speed:0.5,
+                  affixes:[{stat:'speed',value:0.3,label:'移动速度 +0.3'}] },
+        amulet: { kind:'amulet', name:'智慧之戒', color:'#9b59b6', rarity:'legendary',
+                  atk:8, def:0, crit:6, lifesteal:5,
+                  affixes:[{stat:'crit',value:6,label:'暴击率 +6%'},
+                           {stat:'lifesteal',value:5,label:'吸血 +5%'}] }
+      };
+      if (typeof player.invalidateBonus === 'function') player.invalidateBonus();
       setTimeout(function () {
         try { toggleCharacterPanel(); } catch (e) {}
       }, 200);
@@ -158,12 +181,20 @@ SCENES = {
     "inventory": """
       startGame();
       player.level = 9; player.gold = 960;
-      if (typeof giveEquip === 'function') {
-        var names = ['烈焰之刃','霜寒护腕','龙鳞胸甲','疾风战靴','智慧之戒'];
-        for (var i = 0; i < 5; i++) {
-          try { giveEquip(makeEquip(i, names[i])); } catch (e) {}
-        }
-      }
+      // 往背包里放 5 件装备（背包 = player.inventory，16 格）
+      var ITEMS = [
+        { kind:'weapon', name:'烈焰之刃', color:'#ff6b35', rarity:'legendary', atk:25, def:0, range:60,
+          affixes:[{stat:'atk',value:8,label:'攻击力 +8'},{stat:'crit',value:5,label:'暴击率 +5%'}] },
+        { kind:'armor', name:'龙鳞胸甲', color:'#2ecc71', rarity:'rare', atk:0, def:18, hp:40,
+          affixes:[{stat:'def',value:6,label:'防御力 +6'}] },
+        { kind:'head', name:'秘银头盔', color:'#95a5a6', rarity:'rare', atk:0, def:8, hp:20,
+          affixes:[{stat:'hp',value:15,label:'生命值 +15'}] },
+        { kind:'gloves', name:'霜寒护腕', color:'#3498db', rarity:'common', atk:6, def:5,
+          affixes:[{stat:'atk',value:3,label:'攻击力 +3'}] },
+        { kind:'boots', name:'疾风战靴', color:'#e67e22', rarity:'common', atk:0, def:4, speed:0.5,
+          affixes:[{stat:'speed',value:0.3,label:'移动速度 +0.3'}] }
+      ];
+      for (var i = 0; i < ITEMS.length; i++) { player.inventory[i] = ITEMS[i]; }
       setTimeout(function () {
         try {
           var p = document.getElementById('inventory-panel');
@@ -253,7 +284,7 @@ def main():
     results = []
     for name, js in SCENES.items():
         out_png = os.path.join(OUT, "%s.png" % name)
-        wrapper = build_wrapper(js, out_png, args.budget)
+        wrapper = build_wrapper(js, out_png, args.budget, tag=name)
         ok, so, se = shoot(wrapper, out_png, args.budget)
         if not ok:
             print("[FAIL] %s —— 未生成 PNG\n%s" % (name, se))

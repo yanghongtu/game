@@ -16,6 +16,8 @@
 
 node_modules/
 .claude/
+__pycache__/
+*.pyc
 
 # 截图工具的中间产物（tools/make_screenshots.py 的包装页与临时截图）
 _shot_work/
